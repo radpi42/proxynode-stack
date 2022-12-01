@@ -1,0 +1,135 @@
+version: "3"
+services:
+  nginx-proxy-manager:
+    image: 'jc21/nginx-proxy-manager:latest'
+    restart: always
+    ports:
+      # These ports are in format <host-port>:<container-port>
+      - '80:80' # Public HTTP Port
+      - '443:443' # Public HTTPS Port
+      - '81:81' # Admin Web Port
+      # Add any other Stream port you want to expose
+      # - '21:21' # FTP
+    environment:
+      DB_MYSQL_HOST: "db"
+      DB_MYSQL_PORT: 3306
+      DB_MYSQL_USER: "npm"
+      DB_MYSQL_PASSWORD: "npm"
+      DB_MYSQL_NAME: "npm"
+      # Uncomment this if IPv6 is not enabled on your host
+      # DISABLE_IPV6: 'true'
+    volumes:
+      - ./data:/data
+      - ./letsencrypt:/etc/letsencrypt
+    depends_on:
+      - db
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+  db:
+    image: 'jc21/mariadb-aria:latest'
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: 'npm'
+      MYSQL_DATABASE: 'npm'
+      MYSQL_USER: 'npm'
+      MYSQL_PASSWORD: 'npm'
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+  dockersocketproxy:
+      image: ghcr.io/tecnativa/docker-socket-proxy:latest
+      container_name: dockersocketproxy
+      restart: always
+      environment:
+          - CONTAINERS=1 # Allow access to viewing containers
+          - POST=0 # Disallow any POST operations (effectively read-only)
+      ports:
+          - 2375:2375
+      volumes:
+          - /var/run/docker.sock:/var/run/docker.sock:ro # Mounted as read-only
+      labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+  portainer:
+    container_name: portainer
+    image: 'portainer/portainer-ce:latest'
+    restart: always
+    ports:
+      - '9000:9000'
+      - '9443:9443'
+      - '8000:8000'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer-data:/data
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    container_name: uptime-kuma
+    restart: unless-stopped
+    volumes:
+      - ./uptime-kuma-data:/app/data
+    ports:
+      - 3001:3001  # <Host Port>:<Container Port>
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+  watchtowerr:
+    container_name: watchtower
+    image: containrrr/watchtower
+    restart: unless-stopped
+    ports:
+      - '8080:8080'
+    volumes:
+      - '/var/run/docker.sock:/tmp/docker.sock:ro'
+      - '/var/run/docker.sock:/var/run/docker.sock'
+      - '/etc/localtime:/etc/localtime:ro'
+    environment:
+      - WATCHTOWER_LABEL_ENABLE=true
+      - WATCHTOWER_DEBUG=true
+      - WATCHTOWER_INCLUDE_STOPPED=true
+      - WATCHTOWER_INCLUDE_RESTARTING=true
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_ROLLING_RESTART=true
+      - WATCHTOWER_REVIVE_STOPPED=true 
+      - WATCHTOWER_HTTP_API_UPDATE=true
+      - WATCHTOWER_HTTP_API_TOKEN=srlproxynodeupdate
+      - WATCHTOWER_HTTP_API_PERIODIC_POLLS=true
+      - WATCHTOWER_HTTP_API_METRICS=true
+      - WATCHTOWER_POLL_INTERVAL=60
+    logging:
+       options:
+         max-size: 1g
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true" 
+  prometheus:
+    container_name: prometheus
+    image: prom/prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus/:/etc/prometheus/
+      - prometheus:/prometheus/
+    ports:
+      - 9090:9090
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+  grafana:
+    container_name: grafana
+    image: grafana/grafana
+    ports:
+      - 3000:3000
+    environment:
+      GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource
+    volumes:
+      - grafana:/var/lib/grafana
+      - ./grafana:/etc/grafana/provisioning
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true" 
+volumes:
+  portainer-data:
+    driver: local
+  prometheus: {}
+  grafana: {}
+networks:
+  default:
+    external: false
+    name: srl-proxy
